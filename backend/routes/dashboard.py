@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends
 from database import get_db
 from usage_limiter import check_and_increment
+from auth import verify_token   
+
 
 router = APIRouter()
 
 
 @router.get("")
-async def get_dashboard(db=Depends(get_db)):
-    user_id = "demo-user"
-
+async def get_dashboard(
+    user_id: str = Depends(verify_token),   # 👈 ADD THIS
+    db=Depends(get_db)
+):
     try:
         result = db.rpc("get_dashboard_summary", {"p_user_id": user_id}).execute()
         summary = result.data or {}

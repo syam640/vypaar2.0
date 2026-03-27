@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/supabase'
+import { api, supabase } from '../lib/supabase' // Added supabase import
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { TrendingUp, ShoppingCart, Users, Package, AlertTriangle, Sparkles } from 'lucide-react'
 import { format } from 'date-fns'
@@ -24,7 +24,7 @@ function StatCard({ label, value, icon: Icon, color, sub }) {
 
 function HealthScore({ score, label }) {
   const color = score >= 80 ? '#22c55e' : score >= 60 ? '#f97316' : score >= 40 ? '#eab308' : '#ef4444'
-  const pct = (score / 100) * 283 // circle circumference ~283
+  const pct = (score / 100) * 283 
   return (
     <div className="card p-5 flex items-center gap-5">
       <div className="relative w-16 h-16 flex-shrink-0">
@@ -58,27 +58,44 @@ const CustomTooltip = ({ active, payload, label }) => {
 }
 
 export default function Dashboard() {
-  const [data, setData]           = useState(null)
-  const [health, setHealth]       = useState(null)
-  const [loading, setLoading]     = useState(true)
+  const [data, setData] = useState(null)
+  const [health, setHealth] = useState(null)
+  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    const load = async () => {
+    const fetchData = async () => {
       try {
-        const [d, h] = await Promise.all([
-          api.get('/dashboard'),
-          api.get('/dashboard/health-score'),
+        // 1. Get the current session to get the token
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token
+
+        if (!token) {
+          toast.error("Not authenticated")
+          return
+        }
+
+        // 2. Fetch both dashboard data and health score
+        const [dResponse, hResponse] = await Promise.all([
+          api.get('/dashboard', {
+            headers: { Authorization: `Bearer ${token}` }
+          }),
+          api.get('/dashboard/health-score', {
+            headers: { Authorization: `Bearer ${token}` }
+          }),
         ])
-        setData(d.data)
-        setHealth(h.data)
+
+        setData(dResponse.data)
+        setHealth(hResponse.data)
       } catch (e) {
+        console.error("Dashboard Load Error:", e)
         toast.error('Failed to load dashboard')
       } finally {
         setLoading(false)
       }
     }
-    load()
+
+    fetchData()
   }, [])
 
   if (loading) return (
@@ -94,7 +111,6 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold">Dashboard</h1>
@@ -108,7 +124,6 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <StatCard label="Today's Sales" icon={TrendingUp} color="#f97316"
           value={`₹${Number(data?.total_sales_today || 0).toLocaleString('en-IN')}`}
@@ -131,7 +146,6 @@ export default function Dashboard() {
           value={data?.low_stock_count || 0} sub="Need restocking" />
       </div>
 
-      {/* Health + Chart */}
       <div className="grid md:grid-cols-2 gap-4 mb-4">
         {health && <HealthScore score={health.total_score} label={health.label} />}
 
@@ -155,7 +169,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Top products */}
       {data?.top_products?.length > 0 && (
         <div className="card p-5">
           <p className="text-xs uppercase tracking-widest mb-4" style={{ color: '#666' }}>Top Products (30 days)</p>
