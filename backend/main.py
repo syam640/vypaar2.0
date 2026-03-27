@@ -1,20 +1,19 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
 
+# Load local .env file if it exists
 load_dotenv()
 
 from routes import bills, products, customers, dashboard, insights, alerts, subscriptions
-from auth import verify_token
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Vyapaar AI Copilot backend starting...")
     yield
-    print("🛑 Shutting down...")
+    print("🛑 Vyapaar AI Copilot backend shutting down...")
 
 app = FastAPI(
     title="Vyapaar AI Copilot API",
@@ -23,18 +22,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Read allowed origins from env
-_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+# ALLOWED_ORIGINS env var = comma-separated list of frontend URLs
+# e.g. https://vypaar.netlify.app,http://localhost:5173
+_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in _raw.split(",") if o.strip()]
+
+print(f"✅ CORS allowed origins: {ALLOWED_ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    max_age=600,
 )
 
+# Include All Routers
 app.include_router(bills.router,         prefix="/bill",         tags=["Billing"])
 app.include_router(products.router,      prefix="/products",     tags=["Products"])
 app.include_router(customers.router,     prefix="/customers",    tags=["Customers"])
