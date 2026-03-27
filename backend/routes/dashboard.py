@@ -1,14 +1,12 @@
 from fastapi import APIRouter, Depends
 from database import get_db
+from usage_limiter import check_and_increment
 
 router = APIRouter()
 
 
 @router.get("")
 async def get_dashboard(db=Depends(get_db)):
-    """
-    Returns full dashboard data using the Supabase SQL function.
-    """
     user_id = "demo-user"
 
     try:
@@ -44,21 +42,13 @@ async def predict_demand(days: int = 7, db=Depends(get_db)):
     user_id = "demo-user"
 
     try:
-        sub = db.table("subscriptions") \
-            .select("plan") \
-            .eq("user_id", user_id) \
-            .single() \
-            .execute()
-
-        if not sub.data or sub.data.get("plan") != "premium":
-            return {
-                "error": "Upgrade to Premium",
-                "upgrade_required": True
-            }
+        # 🔥 usage limit (1/day for free)
+        usage = check_and_increment(user_id, "forecast", db)
 
         from ml.forecasting import forecast_demand
-        forecasts = forecast_demand(user_id, db, days=days)
-        return forecasts
+        result = forecast_demand(user_id, db, days=days)
+        result["usage"] = usage
+        return result
 
     except Exception as e:
         print("Forecast error:", e)
@@ -73,15 +63,19 @@ async def get_health_score(db=Depends(get_db)):
     user_id = "demo-user"
 
     try:
+        # 🔥 usage limit (2/day for free)
+        usage = check_and_increment(user_id, "health_score", db)
+
         from ml.health_score import compute_health_score
-        score = compute_health_score(user_id, db)
-        return score
+        result = compute_health_score(user_id, db)
+        result["usage"] = usage
+        return result
 
     except Exception as e:
         print("Health score error:", e)
-
         return {
             "score": 75,
             "status": "good",
-            "message": "Default health score (fallback)"
+            "message": "Default health score",
+            "usage": {"remaining": 1}
         }

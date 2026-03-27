@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from database import get_db
 from auth import verify_token
 from schemas import InsightRequest
+from usage_limiter import check_and_increment, get_usage_status
 import os, json
 from datetime import datetime
 from openai import OpenAI
@@ -19,62 +20,25 @@ Business context:
 - Orders today: {context.get('total_orders_today', 0)}
 - Total customers: {context.get('total_customers', 0)}
 - Low stock products: {context.get('low_stock_count', 0)}
-- Unread alerts: {context.get('unread_alerts', 0)}
 - Top products: {json.dumps(context.get('top_products', []))}
 - Sales last 7 days: {json.dumps(context.get('sales_last_7_days', []))}
 - Customer segments: {json.dumps(context.get('segments', {}))}
 """
-
     prompts = {
         "daily": base + """
 Generate a daily business insight report in this exact JSON format:
-{
-  "title": "short title",
-  "summary": "2-3 sentence overview of today's business performance",
-  "highlights": ["positive insight 1", "positive insight 2"],
-  "warnings": ["concern 1 if any"],
-  "action_items": ["specific action 1", "specific action 2", "specific action 3"],
-  "tomorrow_focus": "one key thing to focus on tomorrow"
-}
-Respond ONLY with valid JSON. Be specific, practical, and use Indian business context.""",
-
+{"title":"short title","summary":"2-3 sentence overview","highlights":["insight 1"],"warnings":["concern if any"],"action_items":["action 1","action 2","action 3"],"tomorrow_focus":"one key thing"}
+Respond ONLY with valid JSON.""",
         "demand": base + """
-Analyze the sales trend and generate demand forecast insights in JSON:
-{
-  "title": "Demand Forecast Insights",
-  "trending_up": ["products likely to sell more"],
-  "trending_down": ["products selling less"],
-  "restock_urgently": ["product names that need urgent restock"],
-  "action_items": ["action 1", "action 2"],
-  "summary": "2-sentence demand summary"
-}
+{"title":"Demand Forecast Insights","trending_up":["products"],"trending_down":["products"],"restock_urgently":["products"],"action_items":["action 1"],"summary":"2-sentence summary"}
 Respond ONLY with valid JSON.""",
-
         "customer": base + """
-Analyze customer data and generate retention insights in JSON:
-{
-  "title": "Customer Intelligence Report",
-  "loyal_customers_tip": "what to do for loyal customers",
-  "at_risk_customers_tip": "how to re-engage at-risk customers",
-  "new_customers_tip": "how to convert new customers to loyal",
-  "action_items": ["action 1", "action 2", "action 3"],
-  "summary": "2-sentence customer health summary"
-}
+{"title":"Customer Intelligence Report","loyal_customers_tip":"tip","at_risk_customers_tip":"tip","new_customers_tip":"tip","action_items":["action 1"],"summary":"summary"}
 Respond ONLY with valid JSON.""",
-
         "inventory": base + """
-Analyze inventory and generate stock management insights in JSON:
-{
-  "title": "Inventory Health Report",
-  "critical_items": ["items at 0 or near-0 stock"],
-  "overstock_items": ["items with very high stock"],
-  "reorder_suggestions": [{"product": "name", "suggested_qty": 100}],
-  "action_items": ["action 1", "action 2"],
-  "summary": "2-sentence inventory summary"
-}
-Respond ONLY with valid JSON."""
+{"title":"Inventory Health Report","critical_items":["items"],"overstock_items":["items"],"reorder_suggestions":[{"product":"name","suggested_qty":100}],"action_items":["action 1"],"summary":"summary"}
+Respond ONLY with valid JSON.""",
     }
-
     return prompts.get(insight_type, prompts["daily"])
 
 
@@ -84,22 +48,18 @@ async def generate_insight(
     user_id: str = Depends(verify_token),
     db=Depends(get_db)
 ):
-    """Generates AI insight using LLM based on real business data."""
+    """Free: 3 AI insights/day. Premium: unlimited."""
 
-    # Check premium
-    sub = db.table("subscriptions").select("plan").eq("user_id", user_id).single().execute()
-    if not sub.data or sub.data["plan"] != "premium":
-        return {"error": "Upgrade to Premium to access AI Insights", "upgrade_required": True}
+    # Raises HTTP 429 automatically if daily limit reached
+    usage = check_and_increment(user_id, "ai_insights", db)
 
     # Gather context
     dashboard = db.rpc("get_dashboard_summary", {"p_user_id": user_id}).execute().data or {}
-
-    segments_result = db.table("customers").select("segment").eq("user_id", user_id).execute()
-    segment_counts = {}
-    for c in (segments_result.data or []):
-        s = c["segment"]
-        segment_counts[s] = segment_counts.get(s, 0) + 1
-    dashboard["segments"] = segment_counts
+    seg_rows  = db.table("customers").select("segment").eq("user_id", user_id).execute()
+    counts: dict = {}
+    for c in (seg_rows.data or []):
+        counts[c["segment"]] = counts.get(c["segment"], 0) + 1
+    dashboard["segments"] = counts
 
     prompt = build_insight_prompt(req.type, dashboard)
 
@@ -108,10 +68,9 @@ async def generate_insight(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
-            max_tokens=800
+            max_tokens=800,
         )
         raw = response.choices[0].message.content.strip()
-        # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -120,7 +79,6 @@ async def generate_insight(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
 
-    # Store insight in DB
     stored = db.table("insights").insert({
         "user_id":      user_id,
         "type":         req.type,
@@ -129,13 +87,14 @@ async def generate_insight(
         "action_items": insight_data.get("action_items", []),
         "model_used":   "gpt-4o-mini",
         "input_data":   dashboard,
-        "created_at":   datetime.utcnow().isoformat()
+        "created_at":   datetime.utcnow().isoformat(),
     }).execute()
 
     return {
-        "insight": insight_data,
-        "id": stored.data[0]["id"] if stored.data else None,
-        "generated_at": datetime.utcnow().isoformat()
+        "insight":      insight_data,
+        "id":           stored.data[0]["id"] if stored.data else None,
+        "generated_at": datetime.utcnow().isoformat(),
+        "usage":        usage,
     }
 
 
@@ -145,8 +104,18 @@ async def get_insights(
     user_id: str = Depends(verify_token),
     db=Depends(get_db)
 ):
-    result = db.table("insights").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+    result = db.table("insights").select("*").eq("user_id", user_id) \
+               .order("created_at", desc=True).limit(limit).execute()
     return result.data or []
+
+
+@router.get("/usage")
+async def get_all_usage(
+    user_id: str = Depends(verify_token),
+    db=Depends(get_db)
+):
+    """Returns today's usage for all features — powers frontend usage meter."""
+    return get_usage_status(user_id, db)
 
 
 @router.put("/{insight_id}/read")
@@ -155,5 +124,6 @@ async def mark_insight_read(
     user_id: str = Depends(verify_token),
     db=Depends(get_db)
 ):
-    db.table("insights").update({"is_read": True}).eq("id", insight_id).eq("user_id", user_id).execute()
+    db.table("insights").update({"is_read": True}) \
+      .eq("id", insight_id).eq("user_id", user_id).execute()
     return {"message": "Marked as read"}
