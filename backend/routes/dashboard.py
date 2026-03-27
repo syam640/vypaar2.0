@@ -1,18 +1,17 @@
 from fastapi import APIRouter, Depends
 from database import get_db
-from auth import verify_token
 
 router = APIRouter()
 
 
 @router.get("")
-async def get_dashboard(
-    user_id: str = Depends(verify_token),
-    db=Depends(get_db)
-):
+async def get_dashboard(db=Depends(get_db)):
     """
     Returns full dashboard data using the Supabase SQL function.
     """
+    # TEMP: static user_id (replace later with real auth)
+    user_id = "demo-user"
+
     result = db.rpc("get_dashboard_summary", {"p_user_id": user_id}).execute()
     summary = result.data or {}
 
@@ -24,15 +23,9 @@ async def get_dashboard(
 
 
 @router.get("/predict-demand")
-async def predict_demand(
-    days: int = 7,
-    user_id: str = Depends(verify_token),
-    db=Depends(get_db)
-):
-    """
-    Returns demand forecast for next N days per product.
-    Requires premium plan.
-    """
+async def predict_demand(days: int = 7, db=Depends(get_db)):
+    user_id = "demo-user"
+
     sub = db.table("subscriptions").select("plan").eq("user_id", user_id).single().execute()
     if not sub.data or sub.data["plan"] != "premium":
         return {"error": "Upgrade to Premium to access demand forecasting", "upgrade_required": True}
@@ -43,17 +36,9 @@ async def predict_demand(
 
 
 @router.get("/health-score")
-async def get_health_score(
-    user_id: str = Depends(verify_token),
-    db=Depends(get_db)
-):
-    """
-    Computes a 0-100 business health score based on:
-    - Sales trend (30%)
-    - Inventory health (25%)
-    - Customer retention (25%)
-    - Profit margin proxy (20%)
-    """
+async def get_health_score(db=Depends(get_db)):
+    user_id = "demo-user"
+
     from ml.health_score import compute_health_score
     score = compute_health_score(user_id, db)
     return score
