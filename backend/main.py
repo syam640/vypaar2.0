@@ -22,12 +22,20 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# ALLOWED_ORIGINS env var = comma-separated list of frontend URLs
-# e.g. https://vypaar.netlify.app,http://localhost:5173
-_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
-ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in _raw.split(",") if o.strip()]
+# --- BULLETPROOF CORS CONFIGURATION ---
+# Get origins from Env Var or use defaults
+_raw = os.getenv("ALLOWED_ORIGINS", "https://vypaar.netlify.app,http://localhost:5173,http://localhost:3000")
 
-print(f"✅ CORS allowed origins: {ALLOWED_ORIGINS}")
+# This creates a list and adds versions both WITH and WITHOUT the trailing slash 
+# to prevent "No Access-Control-Allow-Origin header" errors.
+base_origins = [o.strip() for o in _raw.split(",") if o.strip()]
+ALLOWED_ORIGINS = []
+for o in base_origins:
+    clean = o.rstrip("/")
+    ALLOWED_ORIGINS.append(clean)
+    ALLOWED_ORIGINS.append(f"{clean}/")
+
+print(f"✅ Final CORS allowed origins: {ALLOWED_ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,6 +45,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
     max_age=600,
 )
+# ---------------------------------------
 
 # Include All Routers
 app.include_router(bills.router,         prefix="/bill",         tags=["Billing"])
