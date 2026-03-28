@@ -24,7 +24,7 @@ app = FastAPI(
 
 # --- BULLETPROOF CORS CONFIGURATION ---
 # Get origins from Env Var or use defaults
-_raw = os.getenv("ALLOWED_ORIGINS", "https://vypaar.netlify.app,http://localhost:5173,http://localhost:3000")
+_raw = os.getenv("ALLOWED_ORIGINS", "https://vypaar20-production.up.railway.app,http://localhost:5173,http://localhost:3000")
 
 # This creates a list and adds versions both WITH and WITHOUT the trailing slash 
 # to prevent "No Access-Control-Allow-Origin header" errors.
