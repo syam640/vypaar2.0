@@ -1,17 +1,35 @@
 from fastapi import HTTPException
 from datetime import date
 
-# Limits per day
+# Limits per day for Free users
 FREE_LIMITS = {
     "insights": 1,
+    "ai_insights": 3, # Matching your insights.py requirement
     "forecast": 1,
     "health_score": 2,
 }
 
 def check_and_increment(user_id: str, feature: str, db):
+    """Checks if a user has exceeded their daily limit and increments the count."""
     today = str(date.today())
 
-    # Check current usage
+    # 1. Get user's subscription plan
+    try:
+        sub = db.table("subscriptions") \
+            .select("plan") \
+            .eq("user_id", user_id) \
+            .maybe_single() \
+            .execute()
+        
+        plan = sub.data["plan"] if sub.data else "free"
+    except Exception:
+        plan = "free"
+
+    # Premium users bypass all limits
+    if plan == "premium":
+        return {"used": 0, "limit": "unlimited", "premium": True}
+
+    # 2. Check current usage for today
     res = db.table("usage_logs") \
         .select("*") \
         .eq("user_id", user_id) \
@@ -20,38 +38,27 @@ def check_and_increment(user_id: str, feature: str, db):
         .execute()
 
     usage = res.data[0] if res.data else None
-
-    # Get subscription
-    sub = db.table("subscriptions") \
-        .select("plan") \
-        .eq("user_id", user_id) \
-        .single() \
-        .execute()
-
-    plan = sub.data["plan"] if sub.data else "free"
-
-    # Premium → no limit
-    if plan == "premium":
-        return {"used": 0, "limit": "unlimited"}
-
     limit = FREE_LIMITS.get(feature, 1)
 
+    # 3. Check if limit is already reached
     if usage and usage["count"] >= limit:
         raise HTTPException(
             status_code=429,
             detail={
                 "error": "Daily limit reached",
-                "upgrade_required": True
+                "upgrade_required": True,
+                "feature": feature
             }
         )
 
-    # Increment usage
+    # 4. Increment or Insert usage
+    used_count = 1
     if usage:
+        used_count = usage["count"] + 1
         db.table("usage_logs") \
-            .update({"count": usage["count"] + 1}) \
+            .update({"count": used_count}) \
             .eq("id", usage["id"]) \
             .execute()
-        used = usage["count"] + 1
     else:
         db.table("usage_logs") \
             .insert({
@@ -61,6 +68,32 @@ def check_and_increment(user_id: str, feature: str, db):
                 "date": today
             }) \
             .execute()
-        used = 1
 
-    return {"used": used, "limit": limit}
+    return {"used": used_count, "limit": limit}
+
+def get_usage_status(user_id: str, db):
+    """
+    REQUIRED BY INSIGHTS.PY
+    Returns today's usage stats for the frontend dashboard.
+    """
+    today = str(date.today())
+    
+    res = db.table("usage_logs") \
+        .select("feature, count") \
+        .eq("user_id", user_id) \
+        .eq("date", today) \
+        .execute()
+    
+    # Create a clean dictionary of current usage
+    current_usage = {item["feature"]: item["count"] for item in (res.data or [])}
+    
+    status = {}
+    for feature, limit in FREE_LIMITS.items():
+        used = current_usage.get(feature, 0)
+        status[feature] = {
+            "used": used,
+            "limit": limit,
+            "remaining": max(0, limit - used)
+        }
+    
+    return status
