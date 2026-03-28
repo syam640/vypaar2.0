@@ -16,7 +16,7 @@ app = FastAPI(title="Vyapaar AI OS")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://splendorous-jelly-de0b68.netlify.app",
+    "https://vyapaa.netlify.app",   # your frontend (IMPORTANT)
         "http://localhost:5173"
     ],
     allow_credentials=True,

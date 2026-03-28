@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react' // Added useRef
+import { useEffect, useState, useRef } from 'react'
 import { api, supabase } from '../lib/supabase'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { TrendingUp, ShoppingCart, Users, Package, AlertTriangle, Sparkles } from 'lucide-react'
@@ -22,48 +22,11 @@ function StatCard({ label, value, icon: Icon, color, sub }) {
   )
 }
 
-function HealthScore({ score, label }) {
-  const color = score >= 80 ? '#22c55e' : score >= 60 ? '#f97316' : score >= 40 ? '#eab308' : '#ef4444'
-  const pct = (score / 100) * 283 
-  return (
-    <div className="card p-5 flex items-center gap-5">
-      <div className="relative w-16 h-16 flex-shrink-0">
-        <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-          <circle cx="50" cy="50" r="45" fill="none" stroke="#1f1f1f" strokeWidth="8" />
-          <circle cx="50" cy="50" r="45" fill="none" stroke={color} strokeWidth="8"
-            strokeDasharray={`${pct} 283`} strokeLinecap="round"
-            style={{ transition: 'stroke-dasharray 1s ease' }} />
-        </svg>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xs font-bold">{score}</span>
-        </div>
-      </div>
-      <div>
-        <p className="text-xs uppercase tracking-widest mb-1" style={{ color: '#666' }}>Business Health</p>
-        <p className="font-bold text-base" style={{ color }}>{label}</p>
-        <p className="text-xs mt-1" style={{ color: '#555' }}>Based on sales, inventory & customers</p>
-      </div>
-    </div>
-  )
-}
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="card px-3 py-2 text-xs">
-      <p style={{ color: '#888' }}>{label}</p>
-      <p className="font-semibold" style={{ color: '#f97316' }}>₹{payload[0]?.value?.toLocaleString('en-IN')}</p>
-    </div>
-  )
-}
-
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
-  
-  // FIX 1: Prevent double-firing in Strict Mode
   const hasFetched = useRef(false)
 
   useEffect(() => {
@@ -72,41 +35,60 @@ export default function Dashboard() {
 
     const fetchData = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token
+        // ✅ FIX 1: Correct session fetching
+        const { data: sessionData } = await supabase.auth.getSession()
+        const token = sessionData?.session?.access_token
 
+        console.log("TOKEN:", token) // 🔥 DEBUG
+
+        // ❌ if no token
         if (!token) {
-          toast.error("Please login to continue")
+          toast.error("Please login first")
           navigate('/login')
           return
         }
 
-        // Fetch dashboard statistics
+        // ✅ FIX 2: API URL debug
+        console.log("API URL:", import.meta.env.VITE_API_URL)
+
+        // ✅ FETCH DASHBOARD
         const dResponse = await api.get('/dashboard', {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
         })
+
+        console.log("Dashboard Data:", dResponse.data)
         setData(dResponse.data)
 
-        // Fetch health score separately
+        // ✅ FETCH HEALTH SCORE
         try {
           const hResponse = await api.get('/dashboard/health-score', {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
           })
           setHealth(hResponse.data)
         } catch (hError) {
-          // FIX 2: Silent handle for Rate Limits (429)
           if (hError.response?.status === 429) {
-            console.warn("Health score rate limit reached.")
+            console.warn("Health score limit reached")
+          } else {
+            console.error("Health error:", hError)
           }
         }
 
       } catch (e) {
         console.error("Dashboard Load Error:", e)
-        if (e.response?.status === 429) {
-          toast.error("Server is busy. Try again in 1 minute.", { icon: '⏳' })
+
+        if (e.response?.status === 401) {
+          toast.error("Session expired. Login again.")
+          navigate('/login')
+        } else if (e.response?.status === 429) {
+          toast.error("Server busy. Try later.")
         } else {
-          toast.error('Connection error. Checking backend...')
+          toast.error("Backend connection failed ❌")
         }
+
       } finally {
         setLoading(false)
       }
@@ -121,99 +103,14 @@ export default function Dashboard() {
     </div>
   )
 
-  const chartData = (data?.sales_last_7_days || []).map(d => ({
-    day: format(new Date(d.day), 'EEE'),
-    total: Number(d.total || 0)
-  }))
-
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold">Dashboard</h1>
-          <p className="text-sm mt-0.5" style={{ color: '#666' }}>
-            {format(new Date(), 'EEEE, d MMMM yyyy')}
-          </p>
-        </div>
-        <button className="btn-brand text-xs flex items-center gap-2"
-          onClick={() => navigate('/insights')}>
-          <Sparkles size={13} /> Generate Insight
-        </button>
-      </div>
+    <div className="p-6 text-white">
+      <h1 className="text-xl font-bold mb-4">Dashboard</h1>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-        <StatCard label="Today's Sales" icon={TrendingUp} color="#f97316"
-          value={`₹${Number(data?.total_sales_today || 0).toLocaleString('en-IN')}`}
-          sub="Revenue today" />
-        <StatCard label="Monthly Sales" icon={TrendingUp} color="#8b5cf6"
-          value={`₹${Number(data?.total_sales_month || 0).toLocaleString('en-IN')}`}
-          sub="This month" />
-        <StatCard label="Orders Today" icon={ShoppingCart} color="#06b6d4"
-          value={data?.total_orders_today || 0}
-          sub="Bills created" />
-        <StatCard label="Customers" icon={Users} color="#22c55e"
-          value={data?.total_customers || 0}
-          sub="Total customers" />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <StatCard label="Products" icon={Package} color="#f59e0b"
-          value={data?.total_products || 0} sub="Active products" />
-        <StatCard label="Low Stock" icon={AlertTriangle} color="#ef4444"
-          value={data?.low_stock_count || 0} sub="Need restocking" />
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4 mb-4">
-        {health ? (
-          <HealthScore score={health.total_score} label={health.label} />
-        ) : (
-          <div className="card p-5 flex items-center justify-center text-xs text-gray-500 italic">
-            Health analysis paused (Limit reached)
-          </div>
-        )}
-
-        <div className="card p-5">
-          <p className="text-xs uppercase tracking-widest mb-4" style={{ color: '#666' }}>Sales — last 7 days</p>
-          <ResponsiveContainer width="100%" height={100}>
-            <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#f97316" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="day" tick={{ fill: '#555', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis hide />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="total" stroke="#f97316" strokeWidth={2}
-                    fill="url(#g)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {data?.top_products?.length > 0 && (
-        <div className="card p-5">
-          <p className="text-xs uppercase tracking-widest mb-4" style={{ color: '#666' }}>Top Products (30 days)</p>
-          <div className="flex flex-col gap-2">
-            {data.top_products.map((p, i) => (
-              <div key={i} className="flex items-center justify-between py-2"
-                   style={{ borderBottom: '1px solid #1a1a1a' }}>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono w-5" style={{ color: '#444' }}>#{i + 1}</span>
-                  <span className="text-sm font-medium">{p.name}</span>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold" style={{ color: '#f97316' }}>
-                    ₹{Number(p.revenue).toLocaleString('en-IN')}
-                  </p>
-                  <p className="text-xs" style={{ color: '#555' }}>{p.units_sold} units</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* SIMPLE DEBUG VIEW */}
+      <pre style={{ fontSize: "10px" }}>
+        {JSON.stringify(data, null, 2)}
+      </pre>
     </div>
   )
 }
