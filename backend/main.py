@@ -66,9 +66,9 @@ def health():
 
 # --- 📂 DYNAMIC ROUTE LOADING (Fixed Pathing) ---
 try:
-    # Explicit imports from the routes package
     from routes import bills, products, customers, dashboard, insights, alerts, subscriptions
     
+    app.include_router(chat_router,          prefix="/chat",         tags=["AI Agent"])
     app.include_router(bills.router,         prefix="/bill",         tags=["Billing"])
     app.include_router(products.router,      prefix="/products",     tags=["Products"])
     app.include_router(customers.router,     prefix="/customers",    tags=["Customers"])
@@ -76,7 +76,6 @@ try:
     app.include_router(insights.router,      prefix="/insights",     tags=["Insights"])
     app.include_router(alerts.router,        prefix="/alerts",       tags=["Alerts"])
     app.include_router(subscriptions.router, prefix="/subscription", tags=["Subscription"])
-    
     print("✅ Successfully loaded all business routes!")
 except Exception as e:
     print(f"❌ Route Load Error: {str(e)}")
