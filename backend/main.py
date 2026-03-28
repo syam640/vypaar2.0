@@ -5,24 +5,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
-# --- 🛠️ THE PATH FIX (Add this first!) ---
-# This ensures Python can find the 'routes' folder inside 'backend'
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
-# -----------------------------------------
-
+# 1. Load Environment
 load_dotenv()
 
-# Now we import using just the folder name since we injected the path
-from routes.bills import router as bills_router
-from routes.products import router as products_router
-from routes.customers import router as customers_router
-from routes.dashboard import router as dashboard_router
-from routes.insights import router as insights_router
-from routes.alerts import router as alerts_router
-from routes.subscriptions import router as subscriptions_router
-from routes.chat import router as chat_router 
+# 2. LOCAL IMPORTS
+# We use 'from routes.FILENAME' because we are running from the backend directory
+try:
+    from routes.bills import router as bills_router
+    from routes.products import router as products_router
+    from routes.customers import router as customers_router
+    from routes.dashboard import router as dashboard_router
+    from routes.insights import router as insights_router
+    from routes.alerts import router as alerts_router
+    from routes.subscriptions import router as subscriptions_router
+    from routes.chat import router as chat_router 
+except ImportError as e:
+    print(f"❌ Import Error: {e}")
+    # Fallback for different directory structures
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from routes.chat import router as chat_router
+    from routes.bills import router as bills_router
+    from routes.products import router as products_router
+    from routes.customers import router as customers_router
+    from routes.dashboard import router as dashboard_router
+    from routes.insights import router as insights_router
+    from routes.alerts import router as alerts_router
+    from routes.subscriptions import router as subscriptions_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,17 +38,15 @@ async def lifespan(app: FastAPI):
     yield
     print("🛑 Vyapaar AI Copilot backend shutting down...")
 
+# 3. Initialize App
 app = FastAPI(
     title="Vyapaar AI Copilot API",
     version="1.0.0",
     lifespan=lifespan
 )
 
-# --- CORS CONFIG ---
-raw_origins = os.getenv(
-    "ALLOWED_ORIGINS", 
-    "https://vypaar20-production.up.railway.app,http://localhost:5173,http://localhost:3000"
-)
+# --- CORS ---
+raw_origins = os.getenv("ALLOWED_ORIGINS", "https://vypaar20-production.up.railway.app,http://localhost:5173")
 base_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
 ALLOWED_ORIGINS = []
 for o in base_origins:
@@ -57,7 +63,7 @@ app.add_middleware(
     max_age=600,
 )
 
-# --- ROUTES ---
+# --- REGISTER ROUTES ---
 app.include_router(chat_router,          prefix="/chat",         tags=["AI Agent"])
 app.include_router(bills_router,         prefix="/bill",         tags=["Billing"])
 app.include_router(products_router,      prefix="/products",     tags=["Products"])
