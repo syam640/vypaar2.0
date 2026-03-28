@@ -1,23 +1,31 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-import os
 from dotenv import load_dotenv
 
-# 1. Load local .env file
+# 1. Load Environment Variables
 load_dotenv()
 
-# 2. Import your route modules
-# Ensure an empty __init__.py exists in your 'routes' folder!
-from routes import bills, products, customers, dashboard, insights, alerts, subscriptions, chat
+# 2. Explicit Router Imports 
+# This fixes the "cannot import name chat from routes" error
+from routes.bills import router as bills_router
+from routes.products import router as products_router
+from routes.customers import router as customers_router
+from routes.dashboard import router as dashboard_router
+from routes.insights import router as insights_router
+from routes.alerts import router as alerts_router
+from routes.subscriptions import router as subscriptions_router
+from routes.chat import router as chat_router 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Vyapaar AI Copilot backend starting...")
+    # Add any startup logic here (e.g., DB connection checks)
     yield
     print("🛑 Vyapaar AI Copilot backend shutting down...")
 
-# 3. Initialize FastAPI App (Must happen BEFORE including routers)
+# 3. Initialize FastAPI App
 app = FastAPI(
     title="Vyapaar AI Copilot API",
     description="Autonomous AI Operating System for Small Businesses",
@@ -48,15 +56,15 @@ app.add_middleware(
 )
 # ---------------------------------------
 
-# 4. Include All Routers (Ordering fixed)
-app.include_router(chat.router,          prefix="/chat",         tags=["AI Agent"])
-app.include_router(bills.router,         prefix="/bill",         tags=["Billing"])
-app.include_router(products.router,      prefix="/products",     tags=["Products"])
-app.include_router(customers.router,     prefix="/customers",    tags=["Customers"])
-app.include_router(dashboard.router,     prefix="/dashboard",    tags=["Dashboard"])
-app.include_router(insights.router,      prefix="/insights",     tags=["Insights"])
-app.include_router(alerts.router,        prefix="/alerts",       tags=["Alerts"])
-app.include_router(subscriptions.router, prefix="/subscription", tags=["Subscription"])
+# 4. Include All Routers (Using Explicit Aliases)
+app.include_router(chat_router,          prefix="/chat",         tags=["AI Agent"])
+app.include_router(bills_router,         prefix="/bill",         tags=["Billing"])
+app.include_router(products_router,      prefix="/products",     tags=["Products"])
+app.include_router(customers_router,     prefix="/customers",    tags=["Customers"])
+app.include_router(dashboard_router,     prefix="/dashboard",    tags=["Dashboard"])
+app.include_router(insights_router,      prefix="/insights",     tags=["Insights"])
+app.include_router(alerts_router,        prefix="/alerts",       tags=["Alerts"])
+app.include_router(subscriptions_router, prefix="/subscription", tags=["Subscription"])
 
 @app.get("/")
 def root():
