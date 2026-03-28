@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, supabase } from '../lib/supabase' // Added supabase import
+import { api, supabase } from '../lib/supabase'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { TrendingUp, ShoppingCart, Users, Package, AlertTriangle, Sparkles } from 'lucide-react'
 import { format } from 'date-fns'
@@ -66,7 +66,6 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // 1. Get the current session to get the token
         const { data: { session } } = await supabase.auth.getSession()
         const token = session?.access_token
 
@@ -75,21 +74,35 @@ export default function Dashboard() {
           return
         }
 
-        // 2. Fetch both dashboard data and health score
-        const [dResponse, hResponse] = await Promise.all([
-          api.get('/dashboard', {
-            headers: { Authorization: `Bearer ${token}` }
-          }),
-          api.get('/dashboard/health-score', {
-            headers: { Authorization: `Bearer ${token}` }
-          }),
-        ])
-
+        // Fetch dashboard statistics
+        const dResponse = await api.get('/dashboard', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         setData(dResponse.data)
-        setHealth(hResponse.data)
+
+        // Fetch health score separately to handle limit errors individually
+        try {
+          const hResponse = await api.get('/dashboard/health-score', {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          setHealth(hResponse.data)
+        } catch (hError) {
+          // CHECK FOR LIMIT ERROR (429)
+          if (hError.response?.status === 429) {
+            console.log("Health score limit reached")
+            // We don't toast here to avoid spamming the user on load, 
+            // but we can set a 'limit' state if we want to show a badge.
+          }
+        }
+
       } catch (e) {
         console.error("Dashboard Load Error:", e)
-        toast.error('Failed to load dashboard')
+        // General error handling
+        if (e.response?.status === 429) {
+          toast.error("Daily limit reached 🚀 Upgrade to Premium", { icon: '💎' })
+        } else {
+          toast.error('Failed to load dashboard data')
+        }
       } finally {
         setLoading(false)
       }
@@ -147,7 +160,13 @@ export default function Dashboard() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        {health && <HealthScore score={health.total_score} label={health.label} />}
+        {health ? (
+          <HealthScore score={health.total_score} label={health.label} />
+        ) : (
+          <div className="card p-5 flex items-center justify-center text-xs text-gray-500 italic">
+            Health score limit reached or unavailable
+          </div>
+        )}
 
         <div className="card p-5">
           <p className="text-xs uppercase tracking-widest mb-4" style={{ color: '#666' }}>Sales — last 7 days</p>
