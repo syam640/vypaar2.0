@@ -3,10 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
+from routes import chat
 
 # Load local .env file if it exists
 load_dotenv()
-
+app.include_router(chat.router, prefix="/chat", tags=["AI Agent"])
 # Import your route modules
 # Ensure these files exist in your 'routes' folder
 from routes import bills, products, customers, dashboard, insights, alerts, subscriptions
